@@ -1,0 +1,56 @@
+name: moali.itlens
+description: "MOALI / LBVD livestock census enumerator app (Myanmar + English)."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Material design icons.
+  cupertino_icons: ^1.0.8
+
+  # Standard Flutter localization: Material/Cupertino delegates + intl types.
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+
+  # HTTP client for calling the backend API (../server)
+  http: ^1.0.0
+
+  # Opens the system browser for the Google OAuth redirect (native handoff flow).
+  url_launcher: ^6.3.0
+
+  # Local draft + language persistence (survey resume across restarts)
+  shared_preferences: ^2.3.0
+
+  # Real-time event channel (authored via the backend /api/v1/ws endpoint)
+  web_socket_channel: ^3.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Generate AppLocalizations from lib/l10n/*.arb at build time.
+  generate: true
+
+  # Official MOALI / LBVD emblems and launcher icon source.
+  assets:
+    - assets/logos/
+
+  # Bundled Noto Sans Myanmar (SIL Open Font License 1.1) so Burmese renders
+  # correctly and offline. The family also carries basic Latin; Flutter falls
+  # back to the platform font for any missing glyph.
+  fonts:
+    - family: NotoSansMyanmar
+      fonts:
+        - asset: assets/fonts/NotoSansMyanmar.ttf
