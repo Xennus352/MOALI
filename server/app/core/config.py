@@ -2,6 +2,7 @@
 import os
 import secrets
 from pathlib import Path
+from urllib.parse import quote_plus
 
 try:  # Optional: load a local .env file if python-dotenv is available
     from dotenv import load_dotenv
@@ -21,6 +22,23 @@ def _env_bool(name: str, default: bool) -> bool:
 def _env_list(name: str, default: str) -> list[str]:
     raw = os.environ.get(name, default)
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _normalize_mysql_url(url: str) -> str:
+    """Return a MySQL URL that the installed driver can actually open.
+
+    Managed providers hand out a bare ``mysql://user:pass@host/db`` URL, which
+    SQLAlchemy maps to the *MySQLdb* driver — not installed here. They also
+    usually omit the charset. Both are fixed up in one place so the app,
+    Alembic and the container entrypoint all agree on the same URL.
+    """
+    if not url:
+        return url
+    if url.startswith("mysql://"):
+        url = "mysql+pymysql://" + url[len("mysql://") :]
+    if url.startswith("mysql+pymysql://") and "charset=" not in url:
+        url += ("&" if "?" in url else "?") + "charset=utf8mb4"
+    return url
 
 
 class Settings:
@@ -63,15 +81,29 @@ class Settings:
     AUTH_RATE_LIMIT_PER_MINUTE: int = int(os.environ.get("AUTH_RATE_LIMIT_PER_MINUTE", "20"))
 
     # ----- Database --------------------------------------------------------
+    # Railway's MySQL service publishes MYSQLHOST / MYSQLUSER / MYSQLPASSWORD /
+    # MYSQLDATABASE (no underscore) plus a ready-made MYSQL_URL; the local
+    # docker-compose stack uses MYSQL_HOST / MYSQL_USER / ... . Both spellings
+    # are accepted, and an explicit DATABASE_URL always wins.
     MYSQL_ROOT_PASSWORD: str = os.environ.get("MYSQL_ROOT_PASSWORD", "root")
-    MYSQL_DATABASE: str = os.environ.get("MYSQL_DATABASE", "livestock_census")
-    MYSQL_USER: str = os.environ.get("MYSQL_USER", "moali")
-    MYSQL_PASSWORD: str = os.environ.get("MYSQL_PASSWORD", "password")
-    MYSQL_HOST: str = os.environ.get("MYSQL_HOST", "127.0.0.1")
-    MYSQL_PORT: int = int(os.environ.get("MYSQL_PORT", "3306"))
-    DATABASE_URL: str = os.environ.get(
-        "DATABASE_URL",
-        f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4",
+    MYSQL_DATABASE: str = os.environ.get("MYSQL_DATABASE") or os.environ.get(
+        "MYSQLDATABASE", "livestock_census"
+    )
+    MYSQL_USER: str = os.environ.get("MYSQL_USER") or os.environ.get("MYSQLUSER", "moali")
+    MYSQL_PASSWORD: str = os.environ.get("MYSQL_PASSWORD") or os.environ.get(
+        "MYSQLPASSWORD", "password"
+    )
+    MYSQL_HOST: str = os.environ.get("MYSQL_HOST") or os.environ.get("MYSQLHOST", "127.0.0.1")
+    MYSQL_PORT: int = int(
+        os.environ.get("MYSQL_PORT") or os.environ.get("MYSQLPORT") or "3306"
+    )
+    DATABASE_URL: str = _normalize_mysql_url(
+        os.environ.get("DATABASE_URL")
+        or os.environ.get("MYSQL_URL")
+        or (
+            f"mysql+pymysql://{quote_plus(MYSQL_USER)}:{quote_plus(MYSQL_PASSWORD)}"
+            f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4"
+        )
     )
 
     # ----- Application -----------------------------------------------------

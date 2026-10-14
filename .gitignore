@@ -1,1 +1,16 @@
+# Secrets — never commit real environment files
+.env
+.env.*
+!.env.example
 server/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

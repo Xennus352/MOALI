@@ -1,0 +1,28 @@
+# Keep the build context small and never bake local secrets into the image.
+# Platform configuration (Railway variables) supplies the real environment.
+
+# Secrets / local env files
+.env
+.env.*
+!.env.example
+
+# Local virtualenvs and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tests are not needed at runtime
+tests/
+
+# VCS / editor / OS noise
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+*.md
+.DS_Store

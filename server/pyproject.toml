@@ -17,6 +17,9 @@ dependencies = [
     "alembic>=1.12.0",
     "pydantic>=2.7.0",
     "pydantic[email]>=2.7.0",
+    "pymysql>=1.1.0",
+    "cryptography>=42.0.0",
+    "argon2-cffi>=23.1.0",
 ]
 
 [dependency-groups]

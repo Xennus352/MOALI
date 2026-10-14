@@ -155,6 +155,135 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ## 7. Not yet deployed / validated
 
 - TLS / reverse proxy configuration above is guidance, not tested here.
-- No CD/CI pipeline, container image for the API, or managed log/metrics.
+- The container image in §8 builds and boots, but no Railway project has been
+  exercised from this repository yet.
+- No CD/CI pipeline or managed log/metrics.
 - Google OAuth (web) stays 501 until credentials are configured; mobile
   Google sign-in needs a token-exchange endpoint (see IMPLEMENTATION_REPORT §12).
+
+---
+
+## 8. Railway (GitHub-connected, Docker)
+
+Railway runs each service from its own Docker image. This repository ships the
+two pieces the API needs:
+
+```
+server/Dockerfile      # FastAPI + Alembic + uvicorn, one worker
+server/start.sh        # wait for MySQL -> alembic upgrade head -> uvicorn
+server/railway.json    # builder + healthcheck, read from the service root
+server/.dockerignore   # keeps .venv/.env/__pycache__ out of the image
+```
+
+MySQL is **not** built by you: add Railway's managed MySQL service (it is a
+`mysql:8` container with a persistent volume). It publishes connection variables
+that the API service references, so no credentials live in the repo.
+
+### 8.1 Push to GitHub
+
+`server/Dockerfile`, `server/start.sh`, `server/railway.json`,
+`server/.dockerignore`, the `config.py` change and this file must be committed:
+
+```bash
+git add server/Dockerfile server/start.sh server/railway.json \
+        server/.dockerignore server/app/core/config.py .gitignore DEPLOYMENT.md
+git commit -m "Add Railway/Docker deployment for the API service"
+git push origin main
+```
+
+Tracked `__pycache__`/`.pyc` files predate this change; `.dockerignore` already
+keeps them out of the image. To stop tracking them:
+
+```bash
+git rm -r --cached server/__pycache__ server/app/__pycache__ \
+    server/moali_server.egg-info
+```
+
+### 8.2 Create the project
+
+1. <https://railway.com> → **New Project → Deploy from GitHub repo** → pick
+   `Xennus352/MOALI` and authorise the Railway GitHub App.
+2. **New → Database → MySQL** (in the *same* project).
+3. Open the API service → **Settings**:
+   - **Root Directory** = `server`  ← the image builds from `server/` only
+   - Railway detects `railway.json` and builds `server/Dockerfile`.
+
+### 8.3 Wire the database
+
+On the **API** service → **Variables → New Variable**:
+
+```
+DATABASE_URL = ${{MySQL.MYSQL_URL}}
+```
+
+`MySQL` must match the MySQL service name exactly (case-sensitive).
+`MYSQL_URL` is `mysql://user:pass@host:port/db`; `app/core/config.py` rewrites it
+to the installed `mysql+pymysql://` driver and appends `charset=utf8mb4`, so it
+works as-is. This talks over Railway's private network — the database stays
+unexposed. (Referencing the parts, `${{MySQL.MYSQLHOST}}` etc., also works; if
+you build the URL by hand, percent-encode the password.)
+
+### 8.4 Required variables on the API service
+
+```
+ENVIRONMENT=production
+DEBUG=False
+SECRET_KEY=<64+ random chars, fixed across restarts>
+ADMIN_EMAIL=<your admin login>
+ADMIN_PASSWORD=<strong, not Admin@12345>
+ADMIN_NAME=System Administrator
+ADMIN_NAME_EN=LBVD Census Admin
+FRONTEND_URL=https://<your console origin>
+CORS_ORIGINS=https://<your console origin>
+```
+
+- `ENVIRONMENT=production` forces `COOKIE_SECURE`; `start.sh` runs uvicorn with
+  `--proxy-headers`, so Railway's TLS terminator makes `https`/`wss` URLs resolve
+  correctly.
+- Do **not** set `PORT`/`HOST` — Railway injects `PORT` and `start.sh` binds it.
+- Set `FRONTEND_URL`/`CORS_ORIGINS` to the deployed console origin, otherwise the
+  browser console is blocked by CORS. `CSP_CONNECT_SRC` only needs extra entries
+  if the WebSocket lives on a different host.
+- If the users table is empty, startup creates the admin from `ADMIN_EMAIL`/
+  `ADMIN_PASSWORD`; with the default dev password in production it refuses (safe).
+
+### 8.5 Deploy and verify
+
+Railway redeploys on every push to `main`. Read the deploy log; it should end
+with:
+
+```
+[start] database reachable
+[start] applying migrations (alembic upgrade head)...
+[start] serving on 0.0.0.0:8000 with a single uvicorn worker
+INFO:     Application startup complete.
+```
+
+Then, from the service's **Settings → Networking → Generate Domain**:
+
+```bash
+curl -s https://<service>.up.railway.app/health
+# {"status":"ok","database":true}
+```
+
+Interactive docs: `https://<service>.up.railway.app/docs`.
+
+### 8.6 Constraints that still apply
+
+- **One worker.** `start.sh` pins `--workers 1`; the realtime fan-out in
+  `app/api/v1/ws.py` is process-local (§3). Scaling out requires Redis pub/sub.
+- **In-memory rate limiting.** `RateLimitMiddleware` counts per process; with a
+  single worker that is correct, but do not scale to N replicas without a shared
+  store.
+- **Migrations run on deploy.** `alembic upgrade head` executes once per
+  container start; migrations are additive (§5 of README) and safe to re-run.
+
+### 8.7 Point the mobile app at it
+
+```bash
+cd flutter_app
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://<service>.up.railway.app
+```
+
+HTTPS is required for release builds (see §6).
